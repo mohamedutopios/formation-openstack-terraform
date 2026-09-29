@@ -1,7 +1,3 @@
-# TP 1 — solution
-# VM CirrOS sur un réseau privé dédié, joignable par IP flottante.
-
-# --- Réseau privé + sous-réseau ---
 resource "openstack_networking_network_v2" "net" {
   name = local.net_name
 }
@@ -14,7 +10,6 @@ resource "openstack_networking_subnet_v2" "subnet" {
   dns_nameservers = var.dns_nameservers
 }
 
-# --- Raccordement au réseau externe : le routeur ---
 resource "openstack_networking_router_v2" "router" {
   name                = local.router_name
   external_network_id = data.openstack_networking_network_v2.public.id
@@ -25,10 +20,10 @@ resource "openstack_networking_router_interface_v2" "iface" {
   subnet_id = openstack_networking_subnet_v2.subnet.id
 }
 
-# --- Security group : SSH + ICMP uniquement ---
+
 resource "openstack_networking_secgroup_v2" "sg" {
   name        = local.sg_name
-  description = "TP1 : SSH et ICMP"
+  description = "Demo modules 1 : SSH et ICMP"
 }
 
 resource "openstack_networking_secgroup_rule_v2" "ssh" {
@@ -49,42 +44,19 @@ resource "openstack_networking_secgroup_rule_v2" "icmp" {
   security_group_id = openstack_networking_secgroup_v2.sg.id
 }
 
-# --- Keypair ---
-resource "openstack_compute_keypair_v2" "key" {
-  name       = local.key_name
-  public_key = file(pathexpand(var.public_key_path))
-}
+module "vm" {
+  source = "./modules/compute"
 
-# --- VM ---
-resource "openstack_networking_port_v2" "vm" {
-  name               = local.port_name
+  name               = local.vm_name
+  image_name         = var.image_name
+  flavor_name        = var.flavor_name
+  public_key         = file(pathexpand(var.public_key_path))
   network_id         = openstack_networking_network_v2.net.id
+  subnet_id          = openstack_networking_subnet_v2.subnet.id
   security_group_ids = [openstack_networking_secgroup_v2.sg.id]
 
-  fixed_ip {
-    subnet_id = openstack_networking_subnet_v2.subnet.id
-  }
-}
+  create_floating_ip = true
+  floating_pool      = var.external_network_name
 
-resource "openstack_compute_instance_v2" "vm" {
-  name        = local.vm_name
-  image_name  = var.image_name
-  flavor_name = var.flavor_name
-  key_pair    = openstack_compute_keypair_v2.key.name
-
-  network {
-    port = openstack_networking_port_v2.vm.id
-  }
-
- // depends_on = [openstack_networking_router_interface_v2.iface]
-}
-
-# --- IP flottante ---
-resource "openstack_networking_floatingip_v2" "fip" {
-  pool = var.external_network_name
-}
-
-resource "openstack_networking_floatingip_associate_v2" "fip" {
-  floating_ip = openstack_networking_floatingip_v2.fip.address
-  port_id     = openstack_networking_port_v2.vm.id
+  depends_on = [openstack_networking_router_interface_v2.iface]
 }
